@@ -1,0 +1,126 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:${LITELLM_VERSION:-v1.99.1}
+    container_name: litellm
+    restart: unless-stopped
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@litellm-db:5432/${POSTGRES_DB}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-changethis}
+      STORE_MODEL_IN_DB: "True"
+      UI_USERNAME: ${UI_USERNAME:-admin}
+      UI_PASSWORD: ${UI_PASSWORD:-sk-changethis}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  litellm-db:
+    image: postgres:17-alpine
+    container_name: litellm-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changethis}
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+    volumes:
+      - litellm_pgdata:/var/lib/postgresql/data
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  gpt-oss-20b:
+    image: nvcr.io/nvidia/vllm:26.09-py3
+    container_name: gpt-oss-20b
+    restart: unless-stopped
+    command: >
+      vllm serve openai/gpt-oss-20b
+      --served-model-name gpt-oss-20b
+      --host 0.0.0.0 --port 8000
+      --gpu-memory-utilization 0.4
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vllm-embed:
+    image: nvcr.io/nvidia/vllm:26.09-py3
+    command: >
+      vllm serve BAAI/bge-m3
+      --served-model-name bge-m3
+      --runner pooling
+      --gpu-memory-utilization 0.08
+      --max-model-len 8192
+      --port 8000
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vllm-rerank:
+    image: nvcr.io/nvidia/vllm:26.09-py3
+    command: >
+      vllm serve BAAI/bge-reranker-v2-m3
+      --served-model-name bge-reranker
+      --runner pooling
+      --gpu-memory-utilization 0.08
+      --port 8000
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - rag_qdata:/qdrant/storage
+
+volumes:
+  litellm_pgdata:
+  rag_qdata:

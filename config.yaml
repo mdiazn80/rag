@@ -1,0 +1,20 @@
+model_list:
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: openai/gpt-oss-20b
+      api_base: http://gpt-oss-20b:8000/v1
+      api_key: "none"
+
+  - model_name: bge-m3
+    litellm_params:
+      model: hosted_vllm/bge-m3
+      api_base: http://vllm-embed:8000/v1
+    model_info:
+      mode: embedding
+
+  - model_name: bge-reranker
+    litellm_params:
+      model: hosted_vllm/bge-reranker
+      api_base: http://vllm-rerank:8000
+    model_info:
+      mode: rerank

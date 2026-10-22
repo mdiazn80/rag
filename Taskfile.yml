@@ -1,0 +1,115 @@
+# https://taskfile.dev
+version: "3"
+
+vars:
+  COMPOSE: docker compose
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  doctor:
+    desc: Check Docker, Compose, and the NVIDIA GPU
+    cmds:
+      - docker info
+      - docker compose version
+      - nvidia-smi -L
+
+  up:
+    desc: Start the stack in the background
+    preconditions:
+      - sh: test -f .env
+        msg: "Copy .env.example to .env and replace the default secrets first."
+    cmds:
+      - "{{.COMPOSE}} up -d"
+
+  down:
+    desc: Stop and remove containers (keeps volumes)
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  start:
+    desc: Start existing containers
+    cmds:
+      - "{{.COMPOSE}} start {{.CLI_ARGS}}"
+
+  stop:
+    desc: Stop containers without removing them
+    cmds:
+      - "{{.COMPOSE}} stop {{.CLI_ARGS}}"
+
+  restart:
+    desc: Restart all services, or one service (task restart -- litellm)
+    cmds:
+      - "{{.COMPOSE}} restart {{.CLI_ARGS}}"
+
+  ps:
+    aliases: [status]
+    desc: Show service status
+    cmds:
+      - "{{.COMPOSE}} ps"
+
+  logs:
+    desc: Follow logs, optionally for one service (task logs -- qdrant)
+    cmds:
+      - "{{.COMPOSE}} logs -f --tail=200 {{.CLI_ARGS}}"
+
+  pull:
+    desc: Pull container images
+    cmds:
+      - "{{.COMPOSE}} pull"
+
+  config:
+    desc: Render the Compose file (prints secrets from .env)
+    cmds:
+      - "{{.COMPOSE}} config"
+
+  health:
+    desc: Check the LiteLLM and Qdrant HTTP endpoints
+    cmds:
+      - |
+        set -eu
+        echo "LiteLLM:"
+        curl -fsS http://127.0.0.1:4000/health/liveliness
+        echo
+        echo "Qdrant:"
+        curl -fsS http://127.0.0.1:6333/healthz
+        echo
+
+  models:
+    desc: List models registered on the LiteLLM proxy
+    preconditions:
+      - sh: test -f .env
+        msg: "Missing .env. The LiteLLM master key is read from that file."
+    cmds:
+      - |
+        set -eu
+        set -a
+        # shellcheck disable=SC1091
+        . ./.env
+        set +a
+        curl -fsS http://127.0.0.1:4000/v1/models \
+          -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"
+        echo
+
+  shell:
+    desc: Open a shell in a service (task shell -- litellm)
+    preconditions:
+      - sh: test -n "{{.CLI_ARGS}}"
+        msg: "Usage: task shell -- <service>"
+    cmds:
+      - "{{.COMPOSE}} exec {{.CLI_ARGS}} sh"
+
+  key:
+    desc: Print a new LiteLLM master key (does not write .env)
+    cmds:
+      - echo "sk-$(openssl rand -hex 24)"
+
+  reset:
+    desc: Stop the stack and delete Postgres and Qdrant volumes
+    prompt: This deletes the Postgres and Qdrant volumes. Continue?
+    cmds:
+      - "{{.COMPOSE}} down -v"
